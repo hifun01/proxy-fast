@@ -1,7 +1,7 @@
 set -Eeuo pipefail
 export LC_ALL=C
 umask 077
-VERSION=1.14.4
+CORE_VERSION=1.14.4
 BASE=/etc/proxy-fast
 LIB=/usr/local/lib/proxy-fast
 PUBLIC=/var/lib/proxy-fast/public
@@ -29,8 +29,8 @@ PY
     exit
 fi
 [[ $(uname -s) == Linux && -d /run/systemd/system ]] || die 'Requires Linux with running systemd (Ubuntu/Debian).'
-source /etc/os-release
-case $ID in ubuntu|debian) ;; *) die 'This first version supports Ubuntu/Debian only.';; esac
+OS_ID=$(source /etc/os-release; printf '%s' "$ID")
+case $OS_ID in ubuntu|debian) ;; *) die 'This first version supports Ubuntu/Debian only.';; esac
 case $(uname -m) in
     x86_64) ARCH=amd64; HASH=699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968;;
     aarch64|arm64) ARCH=arm64; HASH=436441f76ee2f7fe21b5b2d426d3cb261a480455a704865789ad533e4273ec26;;
@@ -56,13 +56,13 @@ chmod 700 "$BASE"
 chmod 755 "$LIB" /var/lib/proxy-fast "$PUBLIC"
 TMP=$(mktemp -d /tmp/proxy-fast.XXXXXXXX)
 STEP=download
-if [[ ! -x $CORE ]] || [[ $("$CORE" version 2>/dev/null | head -n 1) != "sing-box version $VERSION" ]]; then
-    log "Downloading official sing-box $VERSION ($ARCH)"
-    URL="https://github.com/SagerNet/sing-box/releases/download/v$VERSION/sing-box-$VERSION-linux-$ARCH.tar.gz"
+if [[ ! -x $CORE ]] || [[ $("$CORE" version 2>/dev/null | head -n 1) != "sing-box version $CORE_VERSION" ]]; then
+    log "Downloading official sing-box $CORE_VERSION ($ARCH)"
+    URL="https://github.com/SagerNet/sing-box/releases/download/v$CORE_VERSION/sing-box-$CORE_VERSION-linux-$ARCH.tar.gz"
     curl --fail --location --retry 2 --connect-timeout 10 --max-time 180 "$URL" -o "$TMP/core.tar.gz"
     printf '%s  %s\n' "$HASH" "$TMP/core.tar.gz" | sha256sum --check --status || die 'Core archive checksum mismatch.'
-    tar -xzf "$TMP/core.tar.gz" -C "$TMP" "sing-box-$VERSION-linux-$ARCH/sing-box"
-    install -m 755 "$TMP/sing-box-$VERSION-linux-$ARCH/sing-box" "$CORE.new"
+    tar -xzf "$TMP/core.tar.gz" -C "$TMP" "sing-box-$CORE_VERSION-linux-$ARCH/sing-box"
+    install -m 755 "$TMP/sing-box-$CORE_VERSION-linux-$ARCH/sing-box" "$CORE.new"
     mv -f "$CORE.new" "$CORE"
 else
     log 'Using cached core; no download or package refresh.'
