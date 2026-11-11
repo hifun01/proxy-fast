@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Repository entry point: ./proxy-fast on|off|status."""
+from proxy_fast.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

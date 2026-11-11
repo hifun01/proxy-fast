@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxy-fast"
+version = "0.2.0"
+description = "Zero-dependency Alibaba ECS spot proxy lifecycle controller"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-only"}
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/hifun01/proxy-fast"
+
+[project.scripts]
+proxy-fast = "proxy_fast.cli:main"
+
+[tool.setuptools]
+packages = ["proxy_fast"]
+
+[tool.setuptools.package-data]
+proxy_fast = ["bootstrap.sh"]

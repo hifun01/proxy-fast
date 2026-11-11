@@ -54,6 +54,7 @@ fi
 mkdir -p "$BASE" "$LIB" "$PUBLIC"
 chmod 700 "$BASE"
 chmod 755 "$LIB" /var/lib/proxy-fast "$PUBLIC"
+rm -f -- "$PUBLIC/ready.json"
 TMP=$(mktemp -d /tmp/proxy-fast.XXXXXXXX)
 STEP=download
 if [[ ! -x $CORE ]] || [[ $("$CORE" version 2>/dev/null | head -n 1) != "sing-box version $CORE_VERSION" ]]; then
@@ -71,7 +72,7 @@ log 'Core ready.'
 
 # Kept in this single file so the first VPS test needs only one upload.
 cat > "$LIB/runtime.py.new" <<'PY'
-import http.server, ipaddress, json, os, secrets, socket, subprocess, sys, tempfile, time, urllib.parse, urllib.request, uuid
+import http.server, ipaddress, json, os, re, secrets, socket, subprocess, sys, tempfile, time, urllib.parse, urllib.request, uuid
 from pathlib import Path
 
 def write_json(path, value, mode=0o600):
@@ -121,10 +122,17 @@ def render(base,public,core,ip=None):
     else:
         output=subprocess.check_output([core,'generate','reality-keypair'],text=True)
         keys=dict(line.split(':',1) for line in output.splitlines() if ':' in line)
+        token=os.environ.get('PROXY_FAST_SUB_TOKEN') or secrets.token_urlsafe(32)
+        deployment=os.environ.get('PROXY_FAST_DEPLOYMENT_ID') or uuid.uuid4().hex
+        if not re.fullmatch(r'[A-Za-z0-9_-]{32,128}',token) or not re.fullmatch(r'[a-f0-9]{32}',deployment):
+            raise ValueError('Invalid internal deployment identifier')
         state={'uuid':str(uuid.uuid4()),'private_key':keys['PrivateKey'].strip(),
             'public_key':keys['PublicKey'].strip(),'short_id':secrets.token_hex(4),
-            'token':secrets.token_urlsafe(32),'sni':'apple.com','port':443,'sub_port':8080}
+            'token':token,'deployment_id':deployment,'sni':'apple.com','port':443,'sub_port':8080}
         write_json(state_path,state)
+    expected=os.environ.get('PROXY_FAST_SUB_TOKEN')
+    if expected and expected!=state['token']:
+        raise ValueError('Existing credentials belong to a different deployment; refusing to replace them')
     ip=ip or public_ip()
     addr=ipaddress.ip_address(ip)
     if addr.version!=4: raise ValueError('IPv4 only in this first version')
@@ -173,14 +181,15 @@ def render(base,public,core,ip=None):
     result={'mihomo':url+'/clmi.yaml','sing_box':url+'/sbox.json','vless':vless,
         'public_ipv4':ip,'inbound_tcp':[state['port'],state['sub_port']],
         'outbound':'Internet TCP/UDP as needed; DNS resolution required',
-        'core_version':'1.14.4','sni':state['sni']}
+        'core_version':'1.14.4','sni':state['sni'],'deployment_id':state.get('deployment_id')}
     write_json(base/'result.json',result)
 
 def serve(public):
     public=Path(public)
     info=json.loads((public/'routes.json').read_text())
     routes={f"/{info['token']}/clmi.yaml":('clmi.yaml','application/yaml'),
-        f"/{info['token']}/sbox.json":('sbox.json','application/json')}
+        f"/{info['token']}/sbox.json":('sbox.json','application/json'),
+        f"/{info['token']}/ready.json":('ready.json','application/json')}
     class Handler(http.server.BaseHTTPRequestHandler):
         server_version='Subscription'; sys_version=''
         def setup(self):
@@ -192,7 +201,8 @@ def serve(public):
             route=routes.get(urllib.parse.urlsplit(self.path).path)
             if route is None: self.send_error(404); return
             filename,mime=route
-            data=(public/filename).read_bytes()
+            try: data=(public/filename).read_bytes()
+            except FileNotFoundError: self.send_error(404); return
             self.send_response(200)
             self.send_header('Content-Type',mime+'; charset=utf-8')
             self.send_header('Content-Length',str(len(data)))
@@ -356,10 +366,13 @@ done
 [[ $READY == 1 ]] || die 'Local readiness check failed.'
 python3 "$LIB/runtime.py" verify-proxy "$BASE" "$PUBLIC" "$CORE"
 log "Ready in $((SECONDS-START)) seconds. Proxy egress and subscription checked; cloud ingress must be tested from your computer."
-python3 - "$BASE/result.json" "$((SECONDS-START))" <<'PY'
+python3 - "$BASE/result.json" "$((SECONDS-START))" "$PUBLIC/ready.json" "$LIB" <<'PY'
 import json,sys
+sys.path.insert(0,sys.argv[4])
+from runtime import write_json
 path=sys.argv[1]; r=json.load(open(path)); r['install_seconds']=int(sys.argv[2]); r['proxy_egress_verified']=True
-with open(path,'w') as f: json.dump(r,f,ensure_ascii=False,indent=2); f.write('\n')
+write_json(path,r)
+write_json(sys.argv[3],r,0o644)
 print('Mihomo:  '+r['mihomo'])
 print('sing-box: '+r['sing_box'])
 print('Elapsed:  '+sys.argv[2]+' seconds')
